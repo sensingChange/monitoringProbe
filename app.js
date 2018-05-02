@@ -38,7 +38,7 @@ setInterval(function () {
     }
 // }, 900000);
   //  }, 15000);
-}, 15000);
+}, 60000);
 
 
 setInterval(function () {
@@ -51,7 +51,7 @@ setInterval(function () {
 
     
 // }, 900000);
-}, 60000);
+}, 10000);
 
 
 function *sendDataWebApi()
@@ -61,22 +61,48 @@ function *sendDataWebApi()
          let controlFlow = yield;
         db.getAllDatabaseData(controlFlow);
         
-        let measurement = yield;
-        let bffrMeasurement = [measurement[0]];
-        bffrMeasurement.push(measurement[1]);
+        var measurement = yield;
+        if(measurement.length > 0 )
+        {
+            delete measurement[0]._id;
+            let bffrMeasurement = [measurement[0]];
+        
+            for(let i =1;i<50;i++)
+            {
+                delete measurement[i]._id;
+                bffrMeasurement.push(measurement[i]);
+                if(i % 10 == 0)
+                {
+                    console.log("ENVIANDO");
+                    //console.log("\n" + measurementJson);
+                    request({
+                        url: "192.168.100.107:3000/measurement",
+                        method: "POST",
+                        json: true,   // <--Very important!!!
+                        body: JSON.stringify(bffrMeasurement)
+                    }, function (error, response, body){
+                        console.log(error,response);
+                    });
+
+                    bffrMeasurement = [];
+                }
+            }
             
+            if(bffrMeasurement != [])
+            {
                 console.log("ENVIANDO");
-                console.log(JSON.stringify(bffrMeasurement));
                 //console.log("\n" + measurementJson);
                 request({
-                    url: "http://192.168.100.103:3000/measurement",
+                    url: "http://192.168.100.107:3000/measurement",
                     method: "POST",
                     json: true,   // <--Very important!!!
                     body: bffrMeasurement
                 }, function (error, response, body){
                     console.log(response);
                 });
-        
+            
+            }
+        }
           console.log("\nenviado");
         
     } catch (error) {
@@ -107,43 +133,35 @@ function *readSensorGenerator() {
             isReadingSensors = false;
         }, 30000);
 
-        let measurement = {
-                      
+        measurement = {
+            timestamp: new Date(),
+            air: {},
+            soil: {}
         };
 
        
         console.log((new Date), '\n\n\nReading sensors interval.\n\n');
        
         soilTemperature.read(controlFlow);
-        measurement.soilTemperature = yield;
+        measurement.soil.temperature = yield;
         
         temperature.read(controlFlow);
-        measurement.airTemperature = yield;
+        measurement.air.temperature = yield;
         
         luminosity.read(controlFlow);
-        measurement.luminosity = yield;
+        measurement.air.luminosity = yield;
         
-
         conversor.read(controlFlow);
-        measurement.soilhumidity = yield;
+        measurement.soil.humidity = yield;
 
         //  gps.read(controlFlow);
         //  measurement.gps = yield;
-
-
-
-        console.log("Temperatura solo: ", measurement.soilTemperature);
-        console.log("\nLuminosidade:" ,measurement.luminosity);
-        console.log("\nPorta Analógica 3V:", measurement.soilhumidity);        //console.log(measurement.ambient.temperature);
-        console.log("\nAmbiente: ", measurement.airTemperature);    
-        //console.log("\nLocalização: ", measurement.gps);    
+        measurement.timestamp = new Date();
 
         db.database.insert(measurement);
         console.log("\n\n\n" ,(new Date), "Measurement written to local database (', measurement.timestamp, ').");
 
         isReadingSensors = false;
-
-       
 
     } catch (error) {
         console.error((new Date), error);
