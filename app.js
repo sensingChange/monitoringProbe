@@ -1,4 +1,4 @@
-/**
+    /**
  * Created by ibrahimnetto on 02/10/16.
  */
 
@@ -16,8 +16,9 @@ const conversor = require('./lib/conversor');
 const temperature = require('./lib/temperature');
 const rpio = require('rpio');
 const sleep = require('system-sleep');
-
+const getmac = require('getmac');
 const request = require('superagent');
+const config = require('./config');
 
 let controlFlow = {};
 let lockedSerialPort = false;
@@ -26,7 +27,10 @@ let isReadingSensors = false;
 
 let dataAtual = null;
 let minutos = null;
-
+var macaddress;
+getmac.getMac(function(err, macAddress){
+    this.macaddress = macAddress;
+})
 
 
 setInterval(function () {
@@ -69,6 +73,8 @@ function* sendDataWebApi() {
 
             for (let i = 1; i < measurement.length; i++) {
                 delete measurement[i]._id;
+                measurement[i].macaddress = macaddress;
+                measurement[i].name = config.name;
                 bffrMeasurement.push(measurement[i]);
                 
                 if (i % 10 == 0) {
