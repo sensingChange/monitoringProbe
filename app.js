@@ -1,6 +1,4 @@
-    /**
- * Created by ibrahimnetto on 02/10/16.
- */
+
 
 'use strict';
 
@@ -12,8 +10,8 @@ const utils = require('./lib/utils');
 const gps = require('./lib/gps');
 const soilTemperature = require('./lib/ds18b20');
 const luminosity = require('./lib/luminosity');
-const conversor = require('./lib/conversor');
-const temperature = require('./lib/temperature');
+const soilMosture = require('./lib/soilMosture');
+const dht22 = require('./lib/dht22');
 const rpio = require('rpio');
 const sleep = require('system-sleep');
 const getmac = require('getmac');
@@ -23,13 +21,13 @@ const config = require('./config');
 let controlFlow = {};
 let lockedSerialPort = false;
 let isReadingSensors = false;
-
-
+var apiInterval = 45000;
+var lastComm;
 let dataAtual = null;
 let minutos = null;
 var macaddress;
 getmac.getMac(function(err, macAddress){
-    this.macaddress = macAddress;
+    macaddress = macAddress;
 })
 
 
@@ -47,43 +45,52 @@ setInterval(function () {
 }, 15000);
 
 
-setInterval(function () {
+// setInterval(function () {
+//     try {
+//         let sendData = sendDataWebApi()
+//         sendData.next();
+//         sendData.next(sendData);
+//     }
+//     catch (error) { console.log(error); }
+
+
+// }, 120000);
+
+
+function * sendDataWebApi() {
+
     try {
-        let sendData = sendDataWebApi()
-        sendData.next();
-        sendData.next(sendData);
-    }
-    catch (error) { console.log(error); }
+        console.log("entrou codigo");
+         let controlFlowApi = yield;
 
-
-}, 120000);
-
-
-function* sendDataWebApi() {
-
-    try {
-         let controlFlow = yield;
-        db.getAllDatabaseData(controlFlow);
+        db.getAllDatabaseData(controlFlowApi);
 
         var measurement = yield;
+        console.log(measurement);
         var bffrMeasurement = [];
         if (measurement.length > 0) {
+
+            
             delete measurement[0]._id;
             bffrMeasurement = [measurement[0]];
 
             for (let i = 1; i < measurement.length; i++) {
+                if(measurement[i].gps == {})
+                    delete measurement[i].gps;
+
                 delete measurement[i]._id;
+
                 measurement[i].macaddress = macaddress;
                 measurement[i].name = config.name;
+
                 bffrMeasurement.push(measurement[i]);
                 
                 if (i % 10 == 0) {
                 
                     request.post("http://192.168.100.106:3000/measurement")
-                        .set("Accept", "application/json")
+                        .set("Content-type", "application/json")
                         .send(JSON.stringify(bffrMeasurement))
                         .then(function (res) {
-                            alert('yay got ' + JSON.stringify(res.body));
                         });
                     bffrMeasurement = [];
                 }
@@ -91,7 +98,7 @@ function* sendDataWebApi() {
 
             if (bffrMeasurement != []) {
                 request.post("http://192.168.100.106:3000/measurement")
-                    .set("Accept", "application/json")
+                    .set("Content-type", "application/json")
                     .send(JSON.stringify(bffrMeasurement))
                     .then(function (res) {
                         alert('yay got ' + JSON.stringify(res.body));
@@ -99,6 +106,9 @@ function* sendDataWebApi() {
 
             }
         }
+        db.removeAll(controlFlowApi);
+        yield;
+        
 
     } catch (error) {
 
@@ -139,24 +149,49 @@ function* readSensorGenerator() {
 
 
         //do what you need here
-        conversor.read(controlFlow);
+        soilMosture.read(controlFlow);
         measurement.soil.humidity = yield;
 
         soilTemperature.read(controlFlow);
         measurement.soil.temperature = yield;
 
-
         luminosity.read(controlFlow);
-        measurement.air.luminosity = yield;
+        measurement.luminosity = yield;
 
-        temperature.read(controlFlow);
-        measurement.air.temperature = yield;
+        dht22.read(controlFlow);
+        measurement.air = yield;
 
+        gps.read(controlFlow);
+        measurement.gps = yield;
+
+        console.log(measurement);
 
         measurement.timestamp = new Date();
 
         db.database.insert(measurement);
         console.log("\n\n\n", (new Date), "Measurement written to local database (', measurement.timestamp, ').");
+
+        if(lastComm == null)
+        {
+            lastComm = new Date();
+        }
+        else 
+        {
+            let diff = Math.abs(lastComm.getTime() - new Date().getTime());
+            console.log(diff);            
+            if(diff > apiInterval)
+            {
+
+            let sendData = sendDataWebApi(controlFlow);
+            sendData.next();
+                sendData.next(sendData);
+
+                 yield;
+                 lastComm = new Date();
+            }
+        }
+
+        
 
         isReadingSensors = false;
 

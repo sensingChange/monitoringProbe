@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "crc": "^3.4.0",
+    "fs": "0.0.1-security",
     "i2c": "^0.2.3",
+    "johnny-five": "^0.15.0",
     "moment-timezone": "^0.5.7",
     "nedb": "^1.8.0",
     "node-dht-sensor": "0.0.27",
