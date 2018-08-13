@@ -1,10 +1,21 @@
 
+/**
+ * Created by:
+ *  Bruno Lusvarghi Fernandes
+ * 
+ *  Ibrahim Eugenio Carnevale Netto 
+ *  Bruno Bezerra da Silva
+ *  Tainan de Fátima Ferraz Mafra
+ *  Maythê Alves Bragança Tavares
+ * 
+ */
 
-'use strict';
 
+'use strict'
+
+//APP
 const crc = require('crc');
 const _ = require('underscore');
-
 const db = require('./lib/db');
 const utils = require('./lib/utils');
 const gps = require('./lib/gps');
@@ -16,17 +27,22 @@ const rpio = require('rpio');
 const sleep = require('system-sleep');
 const getmac = require('getmac');
 const request = require('superagent');
-const config = require('./config');
+const api = require('./lib/api');
+const fs = require('fs');
+
 
 let controlFlow = {};
 let lockedSerialPort = false;
 let isReadingSensors = false;
+
 var apiInterval = 45000;
+
 var lastComm;
 let dataAtual = null;
 let minutos = null;
 var macaddress;
-getmac.getMac(function(err, macAddress){
+
+getmac.getMac({iface: 'wlan0'},function(err, macAddress){
     macaddress = macAddress;
 })
 
@@ -45,19 +61,10 @@ setInterval(function () {
 }, 15000);
 
 
-// setInterval(function () {
-//     try {
-//         let sendData = sendDataWebApi()
-//         sendData.next();
-//         sendData.next(sendData);
-//     }
-//     catch (error) { console.log(error); }
 
 
-// }, 120000);
 
-
-function * sendDataWebApi() {
+function * sendDataWebApi(controlFlow) {
 
     try {
         console.log("entrou codigo");
@@ -68,9 +75,16 @@ function * sendDataWebApi() {
         var measurement = yield;
         console.log(measurement);
         var bffrMeasurement = [];
+        var apiError = false;
         if (measurement.length > 0) {
-
-            
+            var dataObj = [];
+           readFile(controlFlowApi);
+                
+                dataObj = yield;
+               
+                   
+            if(dataObj != [])
+            {
             delete measurement[0]._id;
             bffrMeasurement = [measurement[0]];
 
@@ -81,33 +95,40 @@ function * sendDataWebApi() {
                 delete measurement[i]._id;
 
                 measurement[i].macaddress = macaddress;
-                measurement[i].name = config.name;
+                measurement[i].name = dataObj.name;
 
                 bffrMeasurement.push(measurement[i]);
                 
                 if (i % 10 == 0) {
                 
-                    request.post("http://192.168.100.106:3000/measurement")
-                        .set("Content-type", "application/json")
-                        .send(JSON.stringify(bffrMeasurement))
-                        .then(function (res) {
-                        });
+                    api.post(controlFlowApi,bffrMeasurement,dataObj.url);
+                    let res = yield;
+                    if(res == "false")
+                    {
+                        apiError = true;
+                        break;
+                    }
                     bffrMeasurement = [];
                 }
             }
 
             if (bffrMeasurement != []) {
-                request.post("http://192.168.100.106:3000/measurement")
-                    .set("Content-type", "application/json")
-                    .send(JSON.stringify(bffrMeasurement))
-                    .then(function (res) {
-                        alert('yay got ' + JSON.stringify(res.body));
-                    });
-
+                api.post(controlFlowApi,bffrMeasurement);
+                let res = yield;
+                if(res == "false")
+                {
+                    apiError = true;
+                }
+                bffrMeasurement = [];
             }
         }
-        db.removeAll(controlFlowApi);
-        yield;
+        }
+        if(!apiError)
+        {
+            db.removeAll(controlFlowApi);
+        }
+    
+        controlFlow.next();
         
 
     } catch (error) {
@@ -151,47 +172,55 @@ function* readSensorGenerator() {
         //do what you need here
         soilMosture.read(controlFlow);
         measurement.soil.humidity = yield;
-
+//console.log("1");
         soilTemperature.read(controlFlow);
         measurement.soil.temperature = yield;
-
+//console.log("2");
         luminosity.read(controlFlow);
         measurement.luminosity = yield;
-
+///console.log("3");
         dht22.read(controlFlow);
         measurement.air = yield;
-
+//console.log("4");
         gps.read(controlFlow);
         measurement.gps = yield;
 
         console.log(measurement);
 
         measurement.timestamp = new Date();
+            
+        try{
+console.log("1");
+  //              JSON.parse(measurement);
+console.log("2");
+                db.database.insert(measurement);
+            }
+            catch (e)
+            {
 
-        db.database.insert(measurement);
+            }
+        
         console.log("\n\n\n", (new Date), "Measurement written to local database (', measurement.timestamp, ').");
 
         if(lastComm == null)
         {
             lastComm = new Date();
+            console.log(lastComm);
         }
         else 
         {
             let diff = Math.abs(lastComm.getTime() - new Date().getTime());
-            console.log(diff);            
             if(diff > apiInterval)
             {
-
-            let sendData = sendDataWebApi(controlFlow);
-            sendData.next();
+                let sendData = sendDataWebApi(controlFlow);
+                sendData.next();
                 sendData.next(sendData);
 
-                 yield;
-                 lastComm = new Date();
+                yield;
+                lastComm = null;
+            
             }
         }
-
-        
 
         isReadingSensors = false;
 
@@ -201,4 +230,15 @@ function* readSensorGenerator() {
         isReadingSensors = false;
         clearTimeout(isReadingSensorsLockCheckId);
     }
+}
+
+function  readFile(controlFlowApi)
+{
+    fs.readFile('./configTxt', function read(err, data) {
+        if (err) {
+            console.log("Error config file");
+        }
+        controlFlowApi.next(JSON.parse(data));
+    });
+    
 }
